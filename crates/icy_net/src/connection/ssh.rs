@@ -6,7 +6,7 @@ use std::{borrow::Cow, collections::HashMap, sync::Arc, time::Duration};
 
 use crate::ConnectionState;
 use crate::{Connection, ConnectionType, telnet::TermCaps};
-use tokio::{io::AsyncWriteExt, net::TcpStream, sync::Mutex};
+use tokio::{io::AsyncWriteExt, sync::Mutex};
 
 pub struct SSHConnection {
     client: SshClient,
@@ -21,12 +21,17 @@ pub struct Credentials {
 }
 
 impl SSHConnection {
-    pub async fn open(addr: impl Into<String>, caps: TermCaps, credentials: Credentials) -> crate::Result<Self> {
+    pub async fn open(
+        addr: impl Into<String>,
+        caps: TermCaps,
+        credentials: Credentials,
+        proxy: Option<&crate::connection::proxy::ProxyConfig>,
+    ) -> crate::Result<Self> {
         let mut addr: String = addr.into();
         if !addr.contains(':') {
             addr.push_str(":22");
         }
-        let ssh = SshClient::connect(addr, &credentials.user_name, credentials.password).await?;
+        let ssh = SshClient::connect(addr, &credentials.user_name, credentials.password, proxy).await?;
         let channel = ssh.session.channel_open_session().await?;
         let terminal_type: String = format!("{:?}", caps.terminal).to_lowercase();
         channel
@@ -225,7 +230,12 @@ pub struct SshClient {
 }
 
 impl SshClient {
-    async fn connect(addr: impl Into<String>, user: impl Into<String>, password: impl Into<String>) -> crate::Result<Self> {
+    async fn connect(
+        addr: impl Into<String>,
+        user: impl Into<String>,
+        password: impl Into<String>,
+        proxy: Option<&crate::connection::proxy::ProxyConfig>,
+    ) -> crate::Result<Self> {
         let mut addr: String = addr.into();
         if !addr.contains(':') {
             addr.push_str(":22");
@@ -244,25 +254,16 @@ impl SshClient {
         let config = Arc::new(config);
         let sh = Client {};
         let timeout = Duration::from_secs(5);
-        let result = tokio::time::timeout(timeout, TcpStream::connect(addr)).await;
-        match result {
-            Ok(tcp_stream) => match tcp_stream {
-                Ok(tcp_stream) => {
-                    tcp_stream.set_nodelay(true)?;
-                    let mut session: client::Handle<Client> = russh::client::connect_stream(config, tcp_stream, sh).await?;
+        let tcp_stream = crate::connection::proxy::connect_tcp(&addr, proxy, timeout).await?;
+        tcp_stream.set_nodelay(true)?;
+        let mut session: client::Handle<Client> = russh::client::connect_stream(config, tcp_stream, sh).await?;
 
-                    let auth_res = session.authenticate_password(user, password).await?;
-                    if !auth_res.success() {
-                        return Err("Authentication failed".into());
-                    }
-
-                    Ok(Self { session })
-                }
-
-                Err(err) => Err(Box::new(err)),
-            },
-            Err(err) => Err(Box::new(err)),
+        let auth_res = session.authenticate_password(user, password).await?;
+        if !auth_res.success() {
+            return Err("Authentication failed".into());
         }
+
+        Ok(Self { session })
     }
 
     async fn call(&mut self, command: &str) -> crate::Result<u32> {

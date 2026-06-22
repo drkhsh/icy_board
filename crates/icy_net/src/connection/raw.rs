@@ -4,11 +4,12 @@ use std::{io::ErrorKind, time::Duration};
 use async_trait::async_trait;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
-    net::{TcpStream, ToSocketAddrs},
+    net::TcpStream,
 };
 
 use crate::ConnectionState;
 
+use super::proxy::{connect_tcp, ProxyConfig};
 use super::{Connection, ConnectionType};
 
 pub struct RawConnection {
@@ -17,18 +18,12 @@ pub struct RawConnection {
 }
 
 impl RawConnection {
-    pub async fn open<A: ToSocketAddrs>(addr: &A, timeout: Duration) -> crate::Result<Self> {
-        let result = tokio::time::timeout(timeout, TcpStream::connect(addr)).await;
-        match result {
-            Ok(tcp_stream) => match tcp_stream {
-                Ok(stream) => Ok(Self {
-                    tcp_stream: stream,
-                    read_buffer: Vec::new(),
-                }),
-                Err(err) => Err(Box::new(err)),
-            },
-            Err(err) => Err(Box::new(err)),
-        }
+    pub async fn open(addr: &str, timeout: Duration, proxy: Option<&ProxyConfig>) -> crate::Result<Self> {
+        let tcp_stream = connect_tcp(addr, proxy, timeout).await?;
+        Ok(Self {
+            tcp_stream,
+            read_buffer: Vec::new(),
+        })
     }
 
     pub async fn accept(tcp_stream: TcpStream) -> crate::Result<Self> {
