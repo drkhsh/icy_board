@@ -66,24 +66,23 @@ pub struct TelnetConnection {
 }
 
 impl TelnetConnection {
-    pub async fn open(addr: impl Into<String>, caps: TermCaps, timeout: Duration) -> crate::Result<Self> {
+    pub async fn open(
+        addr: impl Into<String>,
+        caps: TermCaps,
+        timeout: Duration,
+        proxy: Option<&crate::connection::proxy::ProxyConfig>,
+    ) -> crate::Result<Self> {
         let mut addr: String = addr.into();
         if !addr.contains(':') {
             addr.push_str(":23");
         }
-        let result = tokio::time::timeout(timeout, TcpStream::connect(addr)).await;
-        match result {
-            Ok(tcp_stream) => match tcp_stream {
-                Ok(tcp_stream) => Ok(Self {
-                    tcp_stream,
-                    caps,
-                    state: ParserState::Data,
-                    read_buffer: Vec::new(),
-                }),
-                Err(err) => Err(Box::new(err)),
-            },
-            Err(err) => Err(Box::new(err)),
-        }
+        let tcp_stream = crate::connection::proxy::connect_tcp(&addr, proxy, timeout).await?;
+        Ok(Self {
+            tcp_stream,
+            caps,
+            state: ParserState::Data,
+            read_buffer: Vec::new(),
+        })
     }
 
     pub fn accept(tcp_stream: TcpStream) -> crate::Result<Self> {

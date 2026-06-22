@@ -116,16 +116,17 @@ impl RloginConnection {
     ///
     /// Returns a ready `RloginConnection`. Does not validate remote response;
     /// classic rlogin has minimal startup acknowledgement.
-    pub async fn open(addr: impl Into<String>, cfg: RloginConfig, timeout: Duration) -> crate::Result<Self> {
+    pub async fn open(
+        addr: impl Into<String>,
+        cfg: RloginConfig,
+        timeout: Duration,
+        proxy: Option<&crate::connection::proxy::ProxyConfig>,
+    ) -> crate::Result<Self> {
         let mut addr = addr.into();
         if !addr.contains(':') {
             addr.push_str(":513");
         }
-        let mut stream = match tokio::time::timeout(timeout, TcpStream::connect(addr)).await {
-            Ok(Ok(s)) => s,
-            Ok(Err(e)) => return Err(Box::new(e)),
-            Err(e) => return Err(Box::new(e)),
-        };
+        let mut stream = crate::connection::proxy::connect_tcp(&addr, proxy, timeout).await?;
         stream.set_nodelay(true)?;
 
         let terminal = cfg.terminal_str();
