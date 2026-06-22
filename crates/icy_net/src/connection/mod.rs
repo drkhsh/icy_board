@@ -27,6 +27,8 @@ pub enum ConnectionType {
     SecureWebsocket,
     Rlogin,
     RloginSwapped,
+    /// Reticulum remote shell (rnsh) transport.
+    Reticulum,
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
